@@ -42,6 +42,13 @@ export async function POST(req: NextRequest) {
   const { question, pico, stats, includedStudies, criteria, narrativeSections, extractionSummary } =
     body;
 
+  if (!question || !stats || !Array.isArray(includedStudies)) {
+    return NextResponse.json(
+      { error: 'Missing required fields: question, stats, includedStudies' },
+      { status: 400 }
+    );
+  }
+
   const picoContext = pico
     ? `Population: ${pico.population}\nIntervention: ${pico.intervention}\nComparator: ${pico.comparator}\nOutcome: ${pico.outcome}`
     : '';
