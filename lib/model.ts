@@ -109,6 +109,9 @@ export async function callModel(
 
     if (!res.ok) {
       const text = await res.text();
+      if (res.status === 401) {
+        throw new Error('Ollama endpoint rejected the request (401 Unauthorized). Check that OLLAMA_SECRET matches the value in your Caddyfile.');
+      }
       throw new Error(`Ollama API error ${res.status}: ${text}`);
     }
 
@@ -116,6 +119,28 @@ export async function callModel(
       choices: { message: { content: string } }[];
     };
     return data.choices[0]?.message?.content ?? '';
+  } catch (err) {
+    if (err instanceof Error) {
+      // Surface connection failures with a clear, actionable message
+      const msg = err.message;
+      if (
+        msg.includes('ECONNREFUSED') ||
+        msg.includes('fetch failed') ||
+        msg.includes('Failed to fetch') ||
+        msg.includes('ENOTFOUND') ||
+        msg.includes('aborted') ||
+        err.name === 'AbortError'
+      ) {
+        const isTimeout = msg.includes('aborted') || err.name === 'AbortError';
+        throw new Error(
+          isTimeout
+            ? `Model call timed out after 300s. The model (${model}) may still be loading or the request was too large.`
+            : `Cannot reach Ollama at ${baseUrl}. ` +
+              'Make sure the VPS is running and OLLAMA_BASE_URL is set correctly in Vercel environment variables.'
+        );
+      }
+    }
+    throw err;
   } finally {
     clearTimeout(timeout);
   }
