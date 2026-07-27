@@ -280,33 +280,33 @@ export default function ScreenPage({ params }: ScreenPageProps) {
         // to the project database. Do not rely on React's asynchronous state
         // update having completed before the save starts.
         let included = 0, excluded = 0, flagged = 0;
-        let checkpoint: ScreenState | null = null;
-        updateState((prev) => {
-          const newResults = { ...prev.results };
-          for (const r of data.results) {
-            newResults[r.recordId] = r;
-            const d = r.consensusDecision ?? 'flag';
-            if (d === 'include') included++;
-            else if (d === 'exclude') excluded++;
-            else flagged++;
-          }
-          checkpoint = {
-            ...prev,
-            results: newResults,
-            screeningProgress: Object.keys(newResults).length,
-            auditLog: [
-              ...prev.auditLog,
-              makeAuditEntry('screening_batch_complete', {
+        const previous = stateRef.current;
+        const newResults = { ...previous.results };
+        for (const r of data.results) {
+          newResults[r.recordId] = r;
+          const d = r.consensusDecision ?? 'flag';
+          if (d === 'include') included++;
+          else if (d === 'exclude') excluded++;
+          else flagged++;
+        }
+        const checkpoint: ScreenState = {
+          ...previous,
+          results: newResults,
+          screeningProgress: Object.keys(newResults).length,
+          auditLog: [
+            ...previous.auditLog,
+            makeAuditEntry('screening_batch_complete', {
               batchIndex,
               batchSize: batch.length,
               included,
               excluded,
               flagged,
             }),
-            ],
-          };
-          return checkpoint;
-        });
+          ],
+        };
+        stateRef.current = checkpoint;
+        setState(checkpoint);
+        persistState(checkpoint);
 
         setProgress(Math.min(i + BATCH_SIZE, toScreen.length));
 
@@ -315,7 +315,7 @@ export default function ScreenPage({ params }: ScreenPageProps) {
         const saveRes = await fetch(`/api/state/${projectId}/screen`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ state: checkpoint ?? stateRef.current }),
+          body: JSON.stringify({ state: checkpoint }),
         });
         if (!saveRes.ok) {
           throw new Error(`Could not save screening checkpoint (HTTP ${saveRes.status})`);
@@ -330,17 +330,20 @@ export default function ScreenPage({ params }: ScreenPageProps) {
 
     if (!abortRef.current) {
       // Compute kappa across all results
-      let completedState: ScreenState | null = null;
-      updateState((prev) => {
-        const allResults = Object.values(prev.results);
-        const k = computeKappa(allResults);
-        completedState = { ...prev, screeningComplete: true, kappa: k };
-        return completedState;
-      });
+      const previous = stateRef.current;
+      const allResults = Object.values(previous.results);
+      const completedState: ScreenState = {
+        ...previous,
+        screeningComplete: true,
+        kappa: computeKappa(allResults),
+      };
+      stateRef.current = completedState;
+      setState(completedState);
+      persistState(completedState);
       await fetch(`/api/state/${projectId}/screen`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ state: completedState ?? stateRef.current }),
+        body: JSON.stringify({ state: completedState }),
       });
       setPhase('done');
     }
