@@ -89,7 +89,7 @@ Conclusions: [1-2 sentences on implications]
 Write only the abstract text. Do not include the word "Abstract" as a heading.`;
 
   if (!body.sectionId || body.sectionId === 'abstract') {
-    const abstractContent = await generateSection(abstractPrompt, 0.3, 1000);
+    const abstractContent = await generateSection(abstractPrompt, 0.3, 450);
     sections.push({ id: 'abstract', title: 'Abstract', content: abstractContent, edited: false });
   }
 
@@ -119,7 +119,7 @@ ${picoContext ? '\n' + picoContext : ''}
 Write only the body text (no section heading).`;
 
   if (!body.sectionId || body.sectionId === 'introduction') {
-    const introContent = await generateSection(introPrompt, 0.3, 1200);
+    const introContent = await generateSection(introPrompt, 0.3, 650);
     sections.push({
       id: 'introduction',
       title: 'Introduction',
@@ -147,7 +147,7 @@ Paragraph 4: Data extraction — describe structured coding form, side-by-side P
 Write only the body text (no section heading).`;
 
   if (!body.sectionId || body.sectionId === 'methods') {
-    const methodsContent = await generateSection(methodsPrompt, 0.3, 1600);
+    const methodsContent = await generateSection(methodsPrompt, 0.3, 700);
     sections.push({ id: 'methods', title: 'Methods', content: methodsContent, edited: false });
   }
 
@@ -173,7 +173,7 @@ Paragraph 3: Summarise the key findings from included studies based on the extra
 Write only the body text (no section heading).`;
 
   if (!body.sectionId || body.sectionId === 'results') {
-    const resultsContent = await generateSection(resultsPrompt, 0.3, 1400);
+    const resultsContent = await generateSection(resultsPrompt, 0.3, 650);
     sections.push({ id: 'results', title: 'Results', content: resultsContent, edited: false });
   }
 
@@ -204,7 +204,7 @@ ${studyListContext}
 Write only the body text (no section heading).`;
 
   if (!body.sectionId || body.sectionId === 'discussion') {
-    const discussionContent = await generateSection(discussionPrompt, 0.3, 1400);
+    const discussionContent = await generateSection(discussionPrompt, 0.3, 650);
     sections.push({
       id: 'discussion',
       title: 'Discussion',
@@ -225,7 +225,7 @@ Paragraph 2: Implications for practice and future research.
 Write only the body text (no section heading).`;
 
   if (!body.sectionId || body.sectionId === 'conclusions') {
-    const conclusionsContent = await generateSection(conclusionsPrompt, 0.3, 500);
+    const conclusionsContent = await generateSection(conclusionsPrompt, 0.3, 300);
     sections.push({
       id: 'conclusions',
       title: 'Conclusions',

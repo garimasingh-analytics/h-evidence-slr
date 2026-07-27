@@ -347,7 +347,10 @@ export default function ReportPage({ params }: ReportPageProps) {
 
         if (!res.ok) {
           const errData = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-          throw new Error((errData.error as string) ?? `HTTP ${res.status}`);
+          throw new Error(
+            (errData.error as string) ??
+              `The ${sectionIds[i]} section could not be generated (HTTP ${res.status}).`
+          );
         }
 
         const data = (await res.json()) as { sections: ManuscriptSection[] };
