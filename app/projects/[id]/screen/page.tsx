@@ -210,7 +210,10 @@ export default function ScreenPage({ params }: ScreenPageProps) {
 
   // ─── screening loop ───────────────────────────────────────────────────────
 
-  const BATCH_SIZE = 6; // 6 records → 2 chunks of 3 inside API → ~80s per call with qwen2.5:14b
+  // Keep each request small. The app talks to a laptop-hosted Ollama model through
+  // a tunnel, so a larger request can exceed Vercel's function timeout and lose
+  // the whole batch.
+  const BATCH_SIZE = 1;
 
   async function runScreening() {
     const criteria = stateRef.current.criteria;
@@ -273,8 +276,11 @@ export default function ScreenPage({ params }: ScreenPageProps) {
 
         const data = (await res.json()) as { results: ScreeningResult[] };
 
-        // Merge into state
+        // Merge into state and build the exact checkpoint that will be written
+        // to the project database. Do not rely on React's asynchronous state
+        // update having completed before the save starts.
         let included = 0, excluded = 0, flagged = 0;
+        let checkpoint: ScreenState | null = null;
         updateState((prev) => {
           const newResults = { ...prev.results };
           for (const r of data.results) {
@@ -284,32 +290,36 @@ export default function ScreenPage({ params }: ScreenPageProps) {
             else if (d === 'exclude') excluded++;
             else flagged++;
           }
-          return { ...prev, results: newResults };
-        });
-
-        // Audit: batch complete
-        updateState((prev) => ({
-          ...prev,
-          auditLog: [
-            ...prev.auditLog,
-            makeAuditEntry('screening_batch_complete', {
+          checkpoint = {
+            ...prev,
+            results: newResults,
+            screeningProgress: Object.keys(newResults).length,
+            auditLog: [
+              ...prev.auditLog,
+              makeAuditEntry('screening_batch_complete', {
               batchIndex,
               batchSize: batch.length,
               included,
               excluded,
               flagged,
             }),
-          ],
-        }));
+            ],
+          };
+          return checkpoint;
+        });
 
         setProgress(Math.min(i + BATCH_SIZE, toScreen.length));
 
-        // Save to DB (fire-and-forget — checkpoint after each batch)
-        fetch(`/api/state/${projectId}/screen`, {
+        // Await every checkpoint so closing/reloading the page never discards a
+        // completed (and potentially expensive) Ollama result.
+        const saveRes = await fetch(`/api/state/${projectId}/screen`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ state: stateRef.current }),
-        }).catch(() => {}); // silent — localStorage already updated
+          body: JSON.stringify({ state: checkpoint ?? stateRef.current }),
+        });
+        if (!saveRes.ok) {
+          throw new Error(`Could not save screening checkpoint (HTTP ${saveRes.status})`);
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         setErrorMsg(`Batch ${batchIndex + 1} failed: ${msg}`);
@@ -320,10 +330,17 @@ export default function ScreenPage({ params }: ScreenPageProps) {
 
     if (!abortRef.current) {
       // Compute kappa across all results
+      let completedState: ScreenState | null = null;
       updateState((prev) => {
         const allResults = Object.values(prev.results);
         const k = computeKappa(allResults);
-        return { ...prev, screeningComplete: true, kappa: k };
+        completedState = { ...prev, screeningComplete: true, kappa: k };
+        return completedState;
+      });
+      await fetch(`/api/state/${projectId}/screen`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state: completedState ?? stateRef.current }),
       });
       setPhase('done');
     }
@@ -698,7 +715,8 @@ export default function ScreenPage({ params }: ScreenPageProps) {
           </div>
 
           <p className="text-xs text-gray-400 mb-4">
-            Each batch runs two independent AI reviewer passes in parallel. With a local model this may take 20–40 seconds per batch.
+            Each paper runs two independent AI reviewer passes in parallel and is saved immediately.
+            With a laptop-hosted local model, a paper can take about 1–2 minutes. You may cancel and resume later.
           </p>
 
           <button

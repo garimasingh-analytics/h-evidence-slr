@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { callModel } from '@/lib/model';
 import type { ExtractionResponse } from '@/lib/extract/types';
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 interface RequestBody {
   pdfText?: string;
@@ -151,7 +151,9 @@ export async function POST(request: Request) {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      { json: true, temperature: 0.1, maxTokens: 4096 }
+      // A coding form normally needs far less than 4,096 output tokens. Keeping
+      // the response bounded makes laptop-hosted Ollama substantially faster.
+      { json: true, temperature: 0.1, maxTokens: Math.min(2400, Math.max(800, prompts.length * 220)) }
     );
 
     let parsed: unknown;

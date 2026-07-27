@@ -3,7 +3,7 @@ import { callModel } from '@/lib/model';
 import { PRISMA_CHECKLIST } from '@/lib/report/checklist-items';
 import type { ChecklistItem } from '@/lib/report/types';
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 interface AuditBody {
   manuscriptText: string;
