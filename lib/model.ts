@@ -7,6 +7,7 @@ export interface ModelOptions {
   temperature?: number;
   maxTokens?: number;
   json?: boolean; // request JSON-mode output
+  model?: string; // optional per-task Ollama model override
 }
 
 export async function callModel(
@@ -69,7 +70,7 @@ export async function callModel(
 
   // Default: ollama path
   const baseUrl = process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434';
-  const model = process.env.OLLAMA_MODEL ?? 'qwen2.5:14b';
+  const model = options.model ?? process.env.OLLAMA_MODEL ?? 'qwen2.5:14b';
 
   const body: Record<string, unknown> = {
     model,
@@ -136,7 +137,8 @@ export async function callModel(
           isTimeout
             ? `Model call timed out after 300s. The model (${model}) may still be loading or the request was too large.`
             : `Cannot reach Ollama at ${baseUrl}. ` +
-              'Make sure the VPS is running and OLLAMA_BASE_URL is set correctly in Vercel environment variables.'
+              'Make sure Ollama is running and OLLAMA_BASE_URL points to it. ' +
+              'For the free local setup, run Ollama on this machine and use http://127.0.0.1:11434.'
         );
       }
     }

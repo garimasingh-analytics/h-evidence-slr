@@ -153,7 +153,12 @@ export async function POST(request: Request) {
       ],
       // A coding form normally needs far less than 4,096 output tokens. Keeping
       // the response bounded makes laptop-hosted Ollama substantially faster.
-      { json: true, temperature: 0.1, maxTokens: Math.min(2400, Math.max(800, prompts.length * 220)) }
+      {
+        json: true,
+        temperature: 0.1,
+        maxTokens: Math.min(2400, Math.max(800, prompts.length * 220)),
+        model: process.env.OLLAMA_FAST_MODEL ?? 'qwen2.5:3b',
+      }
     );
 
     let parsed: unknown;

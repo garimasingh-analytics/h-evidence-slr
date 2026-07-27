@@ -142,7 +142,11 @@ export async function screenBatch(
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
-    { json: true, temperature }
+    {
+      json: true,
+      temperature,
+      model: process.env.OLLAMA_FAST_MODEL ?? 'qwen2.5:3b',
+    }
   );
 
   return parseResponse(raw, records);
