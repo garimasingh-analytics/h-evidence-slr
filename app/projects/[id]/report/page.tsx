@@ -316,39 +316,57 @@ export default function ReportPage({ params }: ReportPageProps) {
     setGeneratingMsgIdx(0);
 
     try {
-      const res = await fetch('/api/report/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: title || researchQuestion || 'Systematic Review',
-          stats,
-          includedStudies,
-          criteria: screenState?.criteria ?? undefined,
-          narrativeSections: narrativeSections.length ? narrativeSections : undefined,
-          extractionSummary: extractionSummary || undefined,
-        }),
-      });
+      const sectionIds = [
+        'abstract',
+        'introduction',
+        'methods',
+        'results',
+        'discussion',
+        'conclusions',
+      ] as const;
+      const generated: ManuscriptSection[] = [...sections];
 
-      if (!res.ok) {
-        const errData = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-        throw new Error((errData.error as string) ?? `HTTP ${res.status}`);
+      // One section per request keeps every Ollama call inside the hosting
+      // timeout. Save each result immediately so a later failure is resumable.
+      for (let i = 0; i < sectionIds.length; i++) {
+        if (generated.some((section) => section.id === sectionIds[i])) continue;
+        setGeneratingMsgIdx(i);
+        const res = await fetch('/api/report/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sectionId: sectionIds[i],
+            question: title || researchQuestion || 'Systematic Review',
+            stats,
+            includedStudies,
+            criteria: screenState?.criteria ?? undefined,
+            narrativeSections: narrativeSections.length ? narrativeSections : undefined,
+            extractionSummary: extractionSummary || undefined,
+          }),
+        });
+
+        if (!res.ok) {
+          const errData = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+          throw new Error((errData.error as string) ?? `HTTP ${res.status}`);
+        }
+
+        const data = (await res.json()) as { sections: ManuscriptSection[] };
+        if (!data.sections?.[0]) throw new Error(`No ${sectionIds[i]} section returned`);
+        generated.push(data.sections[0]);
+        setSections([...generated]);
+        await fetch(`/api/state/${projectId}/report`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ state: { sections: generated, checklist, auditComplete, title } }),
+        });
       }
 
-      const data = (await res.json()) as { sections: ManuscriptSection[] };
-      setSections(data.sections);
       setPhase('review');
-
-      // Save to DB (checkpoint: sections generated)
-      fetch(`/api/state/${projectId}/report`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ state: { sections: data.sections, checklist, auditComplete, title } }),
-      }).catch(() => {});
     } catch (err) {
       setGenerateError(String(err));
       setPhase('setup');
     }
-  }, [title, researchQuestion, stats, includedStudies, screenState, narrativeSections, extractionSummary, checklist, auditComplete, projectId]);
+  }, [title, researchQuestion, stats, includedStudies, screenState, narrativeSections, extractionSummary, checklist, auditComplete, projectId, sections]);
 
   const handleRunAudit = useCallback(async () => {
     if (!sections.length) return;

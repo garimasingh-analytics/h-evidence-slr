@@ -5,6 +5,7 @@ import type { PRISMAStats, ManuscriptSection, IncludedStudy } from '@/lib/report
 export const maxDuration = 300;
 
 interface GenerateBody {
+  sectionId?: 'abstract' | 'introduction' | 'methods' | 'results' | 'discussion' | 'conclusions';
   question: string;
   pico?: { population: string; intervention: string; comparator: string; outcome: string };
   stats: PRISMAStats;
@@ -87,8 +88,10 @@ Conclusions: [1-2 sentences on implications]
 
 Write only the abstract text. Do not include the word "Abstract" as a heading.`;
 
-  const abstractContent = await generateSection(abstractPrompt, 0.3, 1000);
-  sections.push({ id: 'abstract', title: 'Abstract', content: abstractContent, edited: false });
+  if (!body.sectionId || body.sectionId === 'abstract') {
+    const abstractContent = await generateSection(abstractPrompt, 0.3, 1000);
+    sections.push({ id: 'abstract', title: 'Abstract', content: abstractContent, edited: false });
+  }
 
   // ── 2. Introduction ──
   const backgroundBase = narrativeSections?.find((s) => s.id === 'background')?.content ?? '';
@@ -115,13 +118,15 @@ ${picoContext ? '\n' + picoContext : ''}
 
 Write only the body text (no section heading).`;
 
-  const introContent = await generateSection(introPrompt, 0.3, 1200);
-  sections.push({
-    id: 'introduction',
-    title: 'Introduction',
-    content: introContent,
-    edited: false,
-  });
+  if (!body.sectionId || body.sectionId === 'introduction') {
+    const introContent = await generateSection(introPrompt, 0.3, 1200);
+    sections.push({
+      id: 'introduction',
+      title: 'Introduction',
+      content: introContent,
+      edited: false,
+    });
+  }
 
   // ── 3. Methods ──
   const methodsPrompt = `Write a Methods section (~500 words, 4 paragraphs) for a systematic review on: "${question}".
@@ -141,8 +146,10 @@ Paragraph 4: Data extraction — describe structured coding form, side-by-side P
 
 Write only the body text (no section heading).`;
 
-  const methodsContent = await generateSection(methodsPrompt, 0.3, 1600);
-  sections.push({ id: 'methods', title: 'Methods', content: methodsContent, edited: false });
+  if (!body.sectionId || body.sectionId === 'methods') {
+    const methodsContent = await generateSection(methodsPrompt, 0.3, 1600);
+    sections.push({ id: 'methods', title: 'Methods', content: methodsContent, edited: false });
+  }
 
   // ── 4. Results ──
   const resultsPrompt = `Write a Results section (~400 words, 3 paragraphs) for a systematic review on: "${question}".
@@ -165,8 +172,10 @@ Paragraph 3: Summarise the key findings from included studies based on the extra
 
 Write only the body text (no section heading).`;
 
-  const resultsContent = await generateSection(resultsPrompt, 0.3, 1400);
-  sections.push({ id: 'results', title: 'Results', content: resultsContent, edited: false });
+  if (!body.sectionId || body.sectionId === 'results') {
+    const resultsContent = await generateSection(resultsPrompt, 0.3, 1400);
+    sections.push({ id: 'results', title: 'Results', content: resultsContent, edited: false });
+  }
 
   // ── 5. Discussion ──
   const discussionBase = narrativeSections?.find((s) => s.id === 'discussion')?.content ?? '';
@@ -194,13 +203,15 @@ ${studyListContext}
 
 Write only the body text (no section heading).`;
 
-  const discussionContent = await generateSection(discussionPrompt, 0.3, 1400);
-  sections.push({
-    id: 'discussion',
-    title: 'Discussion',
-    content: discussionContent,
-    edited: false,
-  });
+  if (!body.sectionId || body.sectionId === 'discussion') {
+    const discussionContent = await generateSection(discussionPrompt, 0.3, 1400);
+    sections.push({
+      id: 'discussion',
+      title: 'Discussion',
+      content: discussionContent,
+      edited: false,
+    });
+  }
 
   // ── 6. Conclusions ──
   const conclusionsPrompt = `Write 1–2 short paragraphs (~150 words) as the Conclusions section for a systematic review on: "${question}".
@@ -213,13 +224,15 @@ Paragraph 2: Implications for practice and future research.
 
 Write only the body text (no section heading).`;
 
-  const conclusionsContent = await generateSection(conclusionsPrompt, 0.3, 500);
-  sections.push({
-    id: 'conclusions',
-    title: 'Conclusions',
-    content: conclusionsContent,
-    edited: false,
-  });
+  if (!body.sectionId || body.sectionId === 'conclusions') {
+    const conclusionsContent = await generateSection(conclusionsPrompt, 0.3, 500);
+    sections.push({
+      id: 'conclusions',
+      title: 'Conclusions',
+      content: conclusionsContent,
+      edited: false,
+    });
+  }
 
   return NextResponse.json({ sections });
 }
