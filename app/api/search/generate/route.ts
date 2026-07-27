@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { generatePICO, generateQueries } from '@/lib/search/pico';
 
-export const maxDuration = 30;
+export const maxDuration = 300
 
 export async function POST(request: Request) {
   try {
