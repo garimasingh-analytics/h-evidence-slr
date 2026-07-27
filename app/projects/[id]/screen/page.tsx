@@ -464,10 +464,12 @@ export default function ScreenPage({ params }: ScreenPageProps) {
     (r) => r.humanDecision === null && (r.consensusDecision === null || r.consensusDecision === 'flag')
   );
   const humanReviewRemaining = reviewQueue.length;
+  const unscreenedRemaining = Math.max(0, nonDuplicateRecords.length - screenedResults.length);
 
   const allHumanReviewDone =
     phase === 'done' &&
     screenedResults.length > 0 &&
+    unscreenedRemaining === 0 &&
     humanReviewRemaining === 0;
 
   // ─── render helpers ───────────────────────────────────────────────────────
@@ -778,10 +780,21 @@ export default function ScreenPage({ params }: ScreenPageProps) {
               <span
                 className={`text-sm font-medium ${humanReviewRemaining > 0 ? 'text-yellow-700' : 'text-green-700'}`}
               >
-                {humanReviewRemaining > 0
+                {unscreenedRemaining > 0
+                  ? `${unscreenedRemaining} records still need AI screening`
+                  : humanReviewRemaining > 0
                   ? `${humanReviewRemaining} records remaining in review queue`
                   : 'All records reviewed'}
               </span>
+              {unscreenedRemaining > 0 && (
+                <button
+                  onClick={runScreening}
+                  className="ml-auto px-4 py-1.5 rounded-lg text-sm font-semibold text-white"
+                  style={{ backgroundColor: 'var(--color-primary)' }}
+                >
+                  Resume AI Screening
+                </button>
+              )}
             </div>
           </div>
 
