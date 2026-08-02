@@ -2,10 +2,10 @@ import { callModel } from '@/lib/model';
 import type { AIDecision, ScreeningCriteria, FewShotExample, ScreenDecision } from './types';
 
 const SYSTEM_PROMPT_A = `You are Reviewer A, an expert systematic review screener with a focus on study methodology.
-Screen each paper against the provided criteria. Return ONLY a JSON array, no other text.`;
+Screen each paper against the provided criteria. Return ONLY a JSON object, no other text.`;
 
 const SYSTEM_PROMPT_B = `You are Reviewer B, an expert systematic review screener with a focus on clinical relevance and topic scope.
-Screen each paper against the provided criteria. Return ONLY a JSON array, no other text.`;
+Screen each paper against the provided criteria. Return ONLY a JSON object, no other text.`;
 
 function buildUserPrompt(
   records: Array<{ id: string; title: string; abstract: string }>,
@@ -38,7 +38,7 @@ function buildUserPrompt(
   lines.push('- reason: 1-2 sentence explanation referencing the criteria');
   lines.push('- confidence: "high", "medium", or "low"');
   lines.push('');
-  lines.push('Return a JSON array: [{"id":"...","decision":"...","reason":"...","confidence":"..."}]');
+  lines.push('Return a JSON object: {"decisions":[{"id":"...","decision":"...","reason":"...","confidence":"..."}]}');
   lines.push('');
   lines.push('Papers to screen:');
 
@@ -79,7 +79,8 @@ function parseResponse(
 
   // First try direct JSON.parse
   try {
-    parsed = JSON.parse(text) as RawDecision[];
+    const value = JSON.parse(text) as RawDecision[] | { decisions?: RawDecision[] };
+    parsed = Array.isArray(value) ? value : (value.decisions ?? null);
   } catch {
     // Try to extract JSON array with regex
     const match = text.match(/\[[\s\S]*\]/);
@@ -145,6 +146,7 @@ export async function screenBatch(
     {
       json: true,
       temperature,
+      maxTokens: 700,
       model: process.env.OLLAMA_FAST_MODEL ?? 'qwen2.5:3b',
       groqModel: process.env.GROQ_FAST_MODEL ?? 'qwen/qwen3.6-27b',
     }

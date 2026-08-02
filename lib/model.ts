@@ -32,6 +32,12 @@ export async function callModel(
       temperature: options.temperature ?? 0.2,
       max_tokens: options.maxTokens ?? 2048,
     };
+    if (groqModel.startsWith('qwen/')) {
+      groqBody.reasoning_effort = 'none';
+      if (options.json) {
+        groqBody.response_format = { type: 'json_object' };
+      }
+    }
     try {
       const maxAttempts = 4;
 

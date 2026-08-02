@@ -38,16 +38,14 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Process in small chunks to stay within model timeout, running A+B in parallel per chunk
+    // Process in small chunks and serialize reviewers so free-tier TPM is not exhausted by bursts.
     const decisionsA: Record<string, import('@/lib/screen/types').AIDecision> = {};
     const decisionsB: Record<string, import('@/lib/screen/types').AIDecision> = {};
 
     for (let i = 0; i < records.length; i += MODEL_CHUNK_SIZE) {
       const chunk = records.slice(i, i + MODEL_CHUNK_SIZE);
-      const [chunkA, chunkB] = await Promise.all([
-        screenBatch(chunk, criteria, 'A', calibrationExamples),
-        screenBatch(chunk, criteria, 'B', calibrationExamples),
-      ]);
+      const chunkA = await screenBatch(chunk, criteria, 'A', calibrationExamples);
+      const chunkB = await screenBatch(chunk, criteria, 'B', calibrationExamples);
       Object.assign(decisionsA, chunkA);
       Object.assign(decisionsB, chunkB);
     }
