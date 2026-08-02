@@ -146,6 +146,7 @@ export async function screenBatch(
       json: true,
       temperature,
       model: process.env.OLLAMA_FAST_MODEL ?? 'qwen2.5:3b',
+      groqModel: process.env.GROQ_FAST_MODEL ?? 'qwen/qwen3.6-27b',
     }
   );
 

@@ -8,6 +8,7 @@ export interface ModelOptions {
   maxTokens?: number;
   json?: boolean; // request JSON-mode output
   model?: string; // optional per-task Ollama model override
+  groqModel?: string; // optional per-task Groq model override
 }
 
 export async function callModel(
@@ -15,6 +16,52 @@ export async function callModel(
   options: ModelOptions = {}
 ): Promise<string> {
   const provider = process.env.MODEL_PROVIDER ?? 'ollama';
+
+  if (provider === 'groq') {
+    const apiKey = process.env.GROQ_API_KEY;
+    if (!apiKey) {
+      throw new Error('GROQ_API_KEY is not configured. Add a Groq API key in Vercel.');
+    }
+
+    const groqModel =
+      options.groqModel ?? process.env.GROQ_MODEL ?? 'openai/gpt-oss-120b';
+    const groqBody: Record<string, unknown> = {
+      model: groqModel,
+      messages,
+      stream: false,
+      temperature: options.temperature ?? 0.2,
+      max_tokens: options.maxTokens ?? 2048,
+    };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120_000);
+
+    try {
+      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify(groqBody),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`Groq API error ${res.status}: ${text}`);
+      }
+      const data = (await res.json()) as {
+        choices: { message: { content: string } }[];
+      };
+      return data.choices[0]?.message?.content ?? '';
+    } catch (err) {
+      if (process.env.GROQ_FALLBACK_TO_OLLAMA === 'false') throw err;
+      console.warn(
+        `Groq request failed; using Ollama fallback: ${err instanceof Error ? err.message : String(err)}`
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
 
   if (provider === 'claude') {
     const apiKey = process.env.ANTHROPIC_API_KEY;

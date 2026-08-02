@@ -158,6 +158,7 @@ export async function POST(request: Request) {
         temperature: 0.1,
         maxTokens: Math.min(2400, Math.max(800, prompts.length * 220)),
         model: process.env.OLLAMA_FAST_MODEL ?? 'qwen2.5:3b',
+        groqModel: process.env.GROQ_FAST_MODEL ?? 'qwen/qwen3.6-27b',
       }
     );
 
