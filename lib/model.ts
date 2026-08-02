@@ -32,34 +32,59 @@ export async function callModel(
       temperature: options.temperature ?? 0.2,
       max_tokens: options.maxTokens ?? 2048,
     };
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 120_000);
-
     try {
-      const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(groqBody),
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Groq API error ${res.status}: ${text}`);
+      const maxAttempts = 4;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 120_000);
+
+        try {
+          const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify(groqBody),
+            signal: controller.signal,
+          });
+
+          if (res.ok) {
+            const data = (await res.json()) as {
+              choices: { message: { content: string } }[];
+            };
+            return data.choices[0]?.message?.content ?? '';
+          }
+
+          const responseText = await res.text();
+          if (res.status !== 429 || attempt === maxAttempts) {
+            throw new Error(`Groq API error ${res.status}: ${responseText}`);
+          }
+
+          const retryAfterHeader = Number.parseFloat(res.headers.get('retry-after') ?? '');
+          const retryAfterMessage = responseText.match(/try again in ([\d.]+)s/i);
+          const retryAfterSeconds = Number.isFinite(retryAfterHeader)
+            ? retryAfterHeader
+            : Number.parseFloat(retryAfterMessage?.[1] ?? '10');
+          const waitMs = Math.min(30_000, Math.max(1_000, Math.ceil(retryAfterSeconds * 1000) + 500));
+
+          console.warn(`Groq rate limit reached; retrying in ${Math.ceil(waitMs / 1000)}s (attempt ${attempt + 1}/${maxAttempts}).`);
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+        } finally {
+          clearTimeout(timeout);
+        }
       }
-      const data = (await res.json()) as {
-        choices: { message: { content: string } }[];
-      };
-      return data.choices[0]?.message?.content ?? '';
+
+      throw new Error('Groq request failed after automatic retries. Please wait one minute and retry.');
     } catch (err) {
+      if (err instanceof Error && err.message.startsWith('Groq API error 429:')) {
+        throw new Error('Groq free-tier rate limit is temporarily busy. Please wait one minute and retry.');
+      }
       if (process.env.GROQ_FALLBACK_TO_OLLAMA === 'false') throw err;
       console.warn(
         `Groq request failed; using Ollama fallback: ${err instanceof Error ? err.message : String(err)}`
       );
-    } finally {
-      clearTimeout(timeout);
     }
   }
 
