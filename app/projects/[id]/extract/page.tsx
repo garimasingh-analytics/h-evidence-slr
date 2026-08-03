@@ -39,6 +39,14 @@ interface ExtractPageProps {
   params: Promise<{ id: string }>;
 }
 
+interface FullTextDiscovery {
+  id: string;
+  isOpenAccess: boolean;
+  fullTextUrl: string | null;
+  landingPageUrl: string | null;
+  source: string;
+}
+
 export default function ExtractPage({ params }: ExtractPageProps) {
   const { id: projectId } = use(params);
   const router = useRouter();
@@ -121,18 +129,67 @@ export default function ExtractPage({ params }: ExtractPageProps) {
       );
       setIncludedStudyCount(includedRecords.length);
 
+      let rowsForWorkspace = parsed?.recordedRows ?? [];
+      let generatedAutomatically = false;
+
+      if (includedRecords.length > 0 && rowsForWorkspace.length === 0) {
+        rowsForWorkspace = includedRecords.map(createMetadataCodingRow);
+        generatedAutomatically = true;
+      }
+
+      // Discover legal open-access copies without downloading restricted files.
+      if (
+        includedRecords.length > 0 &&
+        rowsForWorkspace.some((row) => !row['Open access status'])
+      ) {
+        const discoveries: FullTextDiscovery[] = [];
+        for (let index = 0; index < includedRecords.length; index += 25) {
+          try {
+            const response = await fetch('/api/fulltext/discover', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                records: includedRecords.slice(index, index + 25).map((record) => ({
+                  id: record.id,
+                  doi: record.doi,
+                  url: record.url,
+                })),
+              }),
+            });
+            if (response.ok) {
+              const data = (await response.json()) as { results?: FullTextDiscovery[] };
+              discoveries.push(...(data.results ?? []));
+            }
+          } catch {
+            // Discovery is an enhancement; metadata extraction remains usable.
+          }
+        }
+
+        const discoveryById = new Map(discoveries.map((item) => [item.id, item]));
+        rowsForWorkspace = rowsForWorkspace.map((row) => {
+          const discovery = discoveryById.get(row['Study ID']);
+          if (!discovery) return { ...row, 'Open access status': 'Not checked' };
+          return {
+            ...row,
+            'Open access status': discovery.isOpenAccess ? 'Open access copy found' : 'Manual full-text check needed',
+            'Full text link': discovery.fullTextUrl ?? discovery.landingPageUrl ?? '',
+            'Full text source': discovery.source,
+          };
+        });
+      }
+
       if (parsed) {
         if (parsed.prompts) setPrompts(parsed.prompts);
         if (parsed.promptsConfirmed !== undefined) setPromptsConfirmed(parsed.promptsConfirmed);
         if (parsed.results) setResults(parsed.results);
-        if (parsed.recordedRows) setRecordedRows(parsed.recordedRows);
+        if (rowsForWorkspace.length > 0) setRecordedRows(rowsForWorkspace);
         if (parsed.phase) setPhase(parsed.phase);
       }
 
       // First visit migration: carry included studies forward and generate a
       // standard SLR coding form without requiring uploads.
-      if (includedRecords.length > 0 && (!parsed?.recordedRows || parsed.recordedRows.length === 0)) {
-        const automaticRows = includedRecords.map(createMetadataCodingRow);
+      if (includedRecords.length > 0 && generatedAutomatically) {
+        const automaticRows = rowsForWorkspace;
         setPrompts(DEFAULT_EXTRACTION_PROMPTS);
         setPromptsConfirmed(true);
         setRecordedRows(automaticRows);
@@ -151,6 +208,24 @@ export default function ExtractPage({ params }: ExtractPageProps) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ state: automaticState }),
+          });
+        } catch {
+          // local persistence below still keeps the workflow usable
+        }
+      } else if (rowsForWorkspace.length > 0 && rowsForWorkspace !== parsed?.recordedRows) {
+        setRecordedRows(rowsForWorkspace);
+        const enrichedState: PersistedState = {
+          prompts: parsed?.prompts?.length ? parsed.prompts : DEFAULT_EXTRACTION_PROMPTS,
+          promptsConfirmed: parsed?.promptsConfirmed ?? true,
+          results: parsed?.results ?? {},
+          recordedRows: rowsForWorkspace,
+          phase: parsed?.phase ?? 'complete',
+        };
+        try {
+          await fetch(`/api/state/${projectId}/extract`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ state: enrichedState }),
           });
         } catch {
           // local persistence below still keeps the workflow usable
@@ -739,7 +814,12 @@ export default function ExtractPage({ params }: ExtractPageProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-6">
+        <div className="rounded-xl border bg-white p-4" style={{ borderColor: '#e5e7eb' }}>
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Open full text</p>
+          <p className="text-2xl font-bold mt-1" style={{ color: 'var(--color-primary)' }}>{recordedRows.filter((row) => row['Open access status'] === 'Open access copy found').length}</p>
+          <p className="text-xs text-gray-400 mt-1">Legal copies discovered automatically</p>
+        </div>
         <div className="rounded-xl border bg-white p-4" style={{ borderColor: '#e5e7eb' }}>
           <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Included studies</p>
           <p className="text-2xl font-bold mt-1" style={{ color: 'var(--color-primary)' }}>{includedStudyCount || recordedRows.length}</p>
