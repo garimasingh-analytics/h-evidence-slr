@@ -5,6 +5,9 @@ import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { parseCodingForm, assessPromptQuality } from '@/lib/extract/parseCodingForm';
 import { exportToExcel } from '@/lib/extract/exportCodingForm';
+import { DEFAULT_EXTRACTION_PROMPTS, createMetadataCodingRow } from '@/lib/extract/defaultForm';
+import type { SearchRecord } from '@/lib/search/types';
+import type { ScreenState } from '@/lib/screen/types';
 import type {
   ExtractionPrompt,
   ExtractionResponse,
@@ -55,6 +58,8 @@ export default function ExtractPage({ params }: ExtractPageProps) {
   const [highlightSource, setHighlightSource] = useState<{ text: string; page: string } | null>(null);
   const [viewFormOpen, setViewFormOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [includedStudyCount, setIncludedStudyCount] = useState(0);
+  const [automaticRowsCreated, setAutomaticRowsCreated] = useState(false);
 
   // ── LocalStorage persistence ─────────────────────────────────────────────
   const storageKey = `extract_state_${projectId}`;
@@ -63,9 +68,16 @@ export default function ExtractPage({ params }: ExtractPageProps) {
     async function loadState() {
       let parsed: Partial<PersistedState> | null = null;
 
-      // DB first
+      let searchRecords: SearchRecord[] = [];
+      let screenState: ScreenState | null = null;
+
+      // DB first: load this step and its upstream project data together.
       try {
-        const res = await fetch(`/api/state/${projectId}/extract`);
+        const [res, searchRes, screenRes] = await Promise.all([
+          fetch(`/api/state/${projectId}/extract`),
+          fetch(`/api/state/${projectId}/search`),
+          fetch(`/api/state/${projectId}/screen`),
+        ]);
         if (res.ok) {
           const data = (await res.json()) as { state: Partial<PersistedState> | null };
           if (data.state && Object.keys(data.state).length > 0) {
@@ -73,6 +85,14 @@ export default function ExtractPage({ params }: ExtractPageProps) {
             // Write-through to localStorage
             try { localStorage.setItem(storageKey, JSON.stringify(parsed)); } catch { /* ignore */ }
           }
+        }
+        if (searchRes.ok) {
+          const data = (await searchRes.json()) as { state: { records?: SearchRecord[] } | null };
+          searchRecords = data.state?.records ?? [];
+        }
+        if (screenRes.ok) {
+          const data = (await screenRes.json()) as { state: ScreenState | null };
+          screenState = data.state;
         }
       } catch {
         // fall through
@@ -88,12 +108,53 @@ export default function ExtractPage({ params }: ExtractPageProps) {
         }
       }
 
+      const includedIds = new Set<string>();
+      if (screenState) {
+        for (const result of Object.values(screenState.results)) {
+          if ((result.humanDecision ?? result.consensusDecision) === 'include') {
+            includedIds.add(result.recordId);
+          }
+        }
+      }
+      const includedRecords = searchRecords.filter(
+        (record) => includedIds.has(record.id) && !record.isDuplicate
+      );
+      setIncludedStudyCount(includedRecords.length);
+
       if (parsed) {
         if (parsed.prompts) setPrompts(parsed.prompts);
         if (parsed.promptsConfirmed !== undefined) setPromptsConfirmed(parsed.promptsConfirmed);
         if (parsed.results) setResults(parsed.results);
         if (parsed.recordedRows) setRecordedRows(parsed.recordedRows);
         if (parsed.phase) setPhase(parsed.phase);
+      }
+
+      // First visit migration: carry included studies forward and generate a
+      // standard SLR coding form without requiring uploads.
+      if (includedRecords.length > 0 && (!parsed?.recordedRows || parsed.recordedRows.length === 0)) {
+        const automaticRows = includedRecords.map(createMetadataCodingRow);
+        setPrompts(DEFAULT_EXTRACTION_PROMPTS);
+        setPromptsConfirmed(true);
+        setRecordedRows(automaticRows);
+        setPhase('complete');
+        setAutomaticRowsCreated(true);
+
+        const automaticState: PersistedState = {
+          prompts: DEFAULT_EXTRACTION_PROMPTS,
+          promptsConfirmed: true,
+          results: parsed?.results ?? {},
+          recordedRows: automaticRows,
+          phase: 'complete',
+        };
+        try {
+          await fetch(`/api/state/${projectId}/extract`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ state: automaticState }),
+          });
+        } catch {
+          // local persistence below still keeps the workflow usable
+        }
       }
 
       setHydrated(true);
@@ -317,7 +378,7 @@ export default function ExtractPage({ params }: ExtractPageProps) {
           </div>
           <div>
             <h1 className="text-2xl font-bold" style={{ color: 'var(--color-primary)' }}>
-              Data Extraction
+              Data Extraction Workspace
             </h1>
             <p className="text-sm text-gray-500">Project: {projectId}</p>
           </div>
@@ -326,10 +387,10 @@ export default function ExtractPage({ params }: ExtractPageProps) {
         {/* Coding form upload */}
         <section className="rounded-xl border bg-white p-6 mb-6" style={{ borderColor: '#e5e7eb' }}>
           <h2 className="font-semibold text-base mb-1" style={{ color: 'var(--color-primary)' }}>
-            Step 1: Upload Coding Form
+            Coding Form
           </h2>
           <p className="text-sm text-gray-500 mb-4">
-            Upload an Excel (.xlsx/.xls) or CSV file. Row 1 column headers become the extraction questions.
+            A standard systematic-review coding form is created automatically from included studies. Upload a custom form only when the protocol requires different fields.
           </p>
 
           {/* Guidance tip */}
@@ -414,10 +475,10 @@ export default function ExtractPage({ params }: ExtractPageProps) {
         {/* PDF upload */}
         <section className="rounded-xl border bg-white p-6 mb-6" style={{ borderColor: '#e5e7eb' }}>
           <h2 className="font-semibold text-base mb-1" style={{ color: 'var(--color-primary)' }}>
-            Step 2: Upload PDFs
+            Optional Full-Text Enrichment
           </h2>
           <p className="text-sm text-gray-500 mb-1">
-            Upload the full-text PDFs of included studies. Multiple files accepted.
+            Included studies are already available from screening. Upload only the PDFs you want to enrich with full-text evidence and page-level citations.
           </p>
           <p className="text-xs text-gray-400 mb-4">
             Text-only mode: PDFs are processed as extracted text. Visual content (figures, tables)
@@ -471,7 +532,7 @@ export default function ExtractPage({ params }: ExtractPageProps) {
             className="px-6 py-3 rounded-lg text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ backgroundColor: 'var(--color-secondary)' }}
           >
-            Start Extraction →
+            Enrich Uploaded PDFs →
           </button>
         </div>
       </div>
@@ -670,13 +731,37 @@ export default function ExtractPage({ params }: ExtractPageProps) {
         </div>
         <div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--color-primary)' }}>
-            Extraction Complete
+            Extraction Workspace Ready
           </h1>
           <p className="text-sm text-gray-500">
-            {recordedRows.length} PDF{recordedRows.length !== 1 ? 's' : ''} recorded
+            {recordedRows.length} included stud{recordedRows.length === 1 ? 'y' : 'ies'} carried forward
           </p>
         </div>
       </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+        <div className="rounded-xl border bg-white p-4" style={{ borderColor: '#e5e7eb' }}>
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Included studies</p>
+          <p className="text-2xl font-bold mt-1" style={{ color: 'var(--color-primary)' }}>{includedStudyCount || recordedRows.length}</p>
+          <p className="text-xs text-gray-400 mt-1">Loaded automatically from screening</p>
+        </div>
+        <div className="rounded-xl border bg-white p-4" style={{ borderColor: '#e5e7eb' }}>
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Coding fields</p>
+          <p className="text-2xl font-bold mt-1" style={{ color: 'var(--color-primary)' }}>{prompts.length}</p>
+          <p className="text-xs text-gray-400 mt-1">Generated standard SLR template</p>
+        </div>
+        <div className="rounded-xl border bg-white p-4" style={{ borderColor: '#e5e7eb' }}>
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Workflow status</p>
+          <p className="text-sm font-bold mt-2 text-green-700">Ready for report</p>
+          <p className="text-xs text-gray-400 mt-1">PDF enrichment remains optional</p>
+        </div>
+      </div>
+
+      {automaticRowsCreated && (
+        <div className="rounded-xl border p-4 mb-6 text-sm" style={{ borderColor: '#bfdbfe', backgroundColor: '#eff6ff', color: '#1e40af' }}>
+          <strong>Automatic handoff complete.</strong> Screening decisions, bibliographic metadata, and abstracts have been transferred into the coding form. Upload full text only for fields that require deeper verification.
+        </div>
+      )}
 
       {/* Action buttons */}
       <div className="flex flex-wrap gap-3 mb-6">
@@ -702,7 +787,7 @@ export default function ExtractPage({ params }: ExtractPageProps) {
           className="px-4 py-2 rounded-lg text-sm font-medium border text-gray-600 hover:bg-gray-50"
           style={{ borderColor: '#d1d5db' }}
         >
-          Extract Another PDF
+          Add or Enrich with PDFs
         </button>
         <button
           onClick={() => router.push(`/projects/${projectId}/report`)}
@@ -744,7 +829,7 @@ export default function ExtractPage({ params }: ExtractPageProps) {
                     className="text-left px-3 py-2 text-white font-semibold sticky left-0 z-10"
                     style={{ backgroundColor: 'var(--color-primary)', minWidth: '160px' }}
                   >
-                    PDF File
+                    Study
                   </th>
                   {prompts.map((p) => (
                     <th key={p.index} className="text-left px-3 py-2 text-white font-semibold"
