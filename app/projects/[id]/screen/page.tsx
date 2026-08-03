@@ -210,10 +210,9 @@ export default function ScreenPage({ params }: ScreenPageProps) {
 
   // ─── screening loop ───────────────────────────────────────────────────────
 
-  // Keep each request small. The app talks to a laptop-hosted Ollama model through
-  // a tunnel, so a larger request can exceed Vercel's function timeout and lose
-  // the whole batch.
-  const BATCH_SIZE = 1;
+  // Three records per checkpoint keeps Groq requests within the free TPM limit
+  // while avoiding the overhead of two model calls for every single record.
+  const BATCH_SIZE = 3;
 
   async function runScreening() {
     const criteria = stateRef.current.criteria;
@@ -355,8 +354,8 @@ export default function ScreenPage({ params }: ScreenPageProps) {
   }
 
   async function retryBatch() {
-    setPhase('setup');
     setErrorMsg('');
+    await runScreening();
   }
 
   // ─── human review ─────────────────────────────────────────────────────────
